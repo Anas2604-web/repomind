@@ -1,14 +1,9 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import {
-  ClerkProvider,
-  SignInButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import PostHogProvider from "./components/PostHogProvider";
+import AuthButtons from "./components/AuthButtons";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -33,7 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
         <body>
           <PostHogProvider>
-            {/* ── Header ── */}
             <header style={{
               display: "flex",
               justifyContent: "space-between",
@@ -57,9 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   display: "flex", alignItems: "center", justifyContent: "center",
                   color: "var(--amber)", fontSize: 14,
                 }}>⬡</div>
-                <span className="gold-shimmer" style={{
-                  fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em",
-                }}>
+                <span className="gold-shimmer" style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}>
                   RepoMind
                 </span>
                 <span style={{
@@ -84,16 +76,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   GitHub
                 </a>
                 <div style={{ width: 1, height: 18, background: "var(--border)" }} />
-                <SignedOut>
-                  <SignInButton mode="modal">
-                    <button className="btn btn-primary" style={{ padding: "7px 16px", fontSize: 13 }}>
-                      Sign in
-                    </button>
-                  </SignInButton>
-                </SignedOut>
-                <SignedIn>
-                  <UserButton afterSignOutUrl="/" />
-                </SignedIn>
+                <AuthButtons />
               </div>
             </header>
             {children}
