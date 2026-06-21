@@ -1,0 +1,17 @@
+data/
+
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/qdrant_data/
+backend/cloned_repos/
+backend/repomind.db
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+.DS_Store
