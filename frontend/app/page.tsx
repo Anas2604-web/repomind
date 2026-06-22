@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import FileTree, { TraceTarget } from "./components/FileTree";
 import OnboardingTour, { shouldShowTour } from "./components/OnboardingTour";
+import LandingPage from "./components/LandingPage";
 import { trackEvent } from "./components/PostHogProvider";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -26,7 +27,7 @@ type Citation = { file_path: string; start_line: number; end_line: number };
 type Message = { role: "user" | "assistant"; content: string; citations?: Citation[] };
 
 export default function Home() {
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken, isSignedIn, isLoaded } = useAuth();
   const { openSignIn } = useClerk();
 
   async function authHeaders(): Promise<Record<string, string>> {
@@ -50,13 +51,14 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
-  // Show tour for first-time visitors
+  // Show tour for first-time signed-in users only
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     const timer = setTimeout(() => {
       if (shouldShowTour()) setShowTour(true);
-    }, 600);
+    }, 800);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isSignedIn, isLoaded]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -79,7 +81,7 @@ export default function Home() {
           setIngestError(data.error || "Ingestion failed");
           if (pollRef.current) clearInterval(pollRef.current);
         }
-      } catch { /* transient — try next tick */ }
+      } catch { /* transient */ }
     }, 2000);
   }
 
@@ -142,6 +144,21 @@ export default function Home() {
     setTraceTarget({ path, key: Date.now() });
   }
 
+  // Show loading state briefly while Clerk loads
+  if (!isLoaded) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "calc(100vh - 52px)" }}>
+        <div className="spin-ring" style={{ width: 24, height: 24, borderWidth: 2 }} />
+      </div>
+    );
+  }
+
+  // Non-signed-in users see the landing page
+  if (!isSignedIn) {
+    return <LandingPage />;
+  }
+
+  // ── Signed-in: full app ──
   const currentStepIndex =
     ingestStatus === "processing" ? 1 :
     ingestStatus === "ready"     ? 3 : -1;
@@ -158,9 +175,8 @@ export default function Home() {
         <aside style={{
           width: sidebarOpen ? 300 : 0,
           minWidth: sidebarOpen ? 300 : 0,
-          borderRight: `1px solid var(--border)`,
-          display: "flex",
-          flexDirection: "column",
+          borderRight: "1px solid var(--border)",
+          display: "flex", flexDirection: "column",
           background: "var(--surface)",
           overflow: "hidden",
           transition: "width 0.25s cubic-bezier(.22,1,.36,1), min-width 0.25s cubic-bezier(.22,1,.36,1)",
@@ -168,16 +184,12 @@ export default function Home() {
         }}>
           <div style={{ padding: "20px 20px 16px", display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "hidden" }}>
 
-            {/* Repo URL input */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Repository URL
               </label>
               <div style={{ position: "relative" }}>
-                <span style={{
-                  position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
-                  color: "var(--text-dim)", fontSize: 14, pointerEvents: "none",
-                }}>⬡</span>
+                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", fontSize: 14, pointerEvents: "none" }}>⬡</span>
                 <input
                   className={`input-base ${ingestStatus === "processing" ? "input-processing" : ""}`}
                   style={{ paddingLeft: 34 }}
@@ -191,14 +203,7 @@ export default function Home() {
 
             <button
               className="btn btn-primary"
-              style={{
-                width: "100%",
-                fontSize: 14,
-                padding: "11px 16px",
-                borderRadius: 10,
-                justifyContent: "center",
-                gap: 8,
-              }}
+              style={{ width: "100%", fontSize: 14, padding: "11px 16px", borderRadius: 10, justifyContent: "center", gap: 8 }}
               onClick={handleIngest}
               disabled={ingestStatus === "processing" || !repoUrl.trim()}
             >
@@ -209,23 +214,18 @@ export default function Home() {
               )}
             </button>
 
-            {/* Error */}
             {ingestStatus === "failed" && ingestError && (
               <div className="fadeUp" style={{
-                background: "rgba(248,113,113,0.08)",
-                border: "1px solid rgba(248,113,113,0.2)",
-                borderRadius: 10, padding: "11px 14px",
-                color: "var(--error)", fontSize: 12, lineHeight: 1.5,
+                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
+                borderRadius: 10, padding: "11px 14px", color: "var(--error)", fontSize: 12, lineHeight: 1.5,
               }}>
                 <strong>Indexing failed</strong><br />{ingestError}
               </div>
             )}
 
-            {/* Success card */}
             {ingestStatus === "ready" && chunksIndexed !== null && (
               <div className="success-pop" style={{
-                background: "var(--amber-soft)",
-                border: "1px solid rgba(245,158,11,0.2)",
+                background: "var(--amber-soft)", border: "1px solid rgba(245,158,11,0.2)",
                 borderRadius: 10, padding: "12px 14px",
                 display: "flex", alignItems: "center", gap: 10,
               }}>
@@ -237,61 +237,37 @@ export default function Home() {
                 }}>◎</div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--amber)" }}>Index ready</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>
-                    {chunksIndexed.toLocaleString()} chunks indexed
-                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>{chunksIndexed.toLocaleString()} chunks indexed</div>
                 </div>
               </div>
             )}
 
-            {/* Pipeline steps */}
-            <div style={{
-              background: "var(--surface-raised)",
-              border: "1px solid var(--border)",
-              borderRadius: 12, padding: "14px 16px",
-              display: "flex", flexDirection: "column", gap: 12,
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                Pipeline
-              </div>
+            <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Pipeline</div>
               {PIPELINE_STEPS.map((s, i) => {
                 const isDone = ingestStatus === "ready" || (ingestStatus === "processing" && i < currentStepIndex);
                 const isActive = ingestStatus === "processing" && i === Math.min(currentStepIndex, 2);
                 return (
                   <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className={`pipeline-dot ${isActive ? "pipeline-dot-active" : ""}`} style={{
-                      background: isDone ? "var(--amber)" : isActive ? "var(--amber)" : "var(--border)",
-                    }} />
+                    <div className={`pipeline-dot ${isActive ? "pipeline-dot-active" : ""}`} style={{ background: isDone ? "var(--amber)" : isActive ? "var(--amber)" : "var(--border)" }} />
                     <div style={{ flex: 1 }}>
-                      <div style={{
-                        fontSize: 12, fontWeight: 500,
-                        color: isDone || isActive ? "var(--text)" : "var(--text-dim)",
-                        fontFamily: "var(--font-mono)",
-                      }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: isDone || isActive ? "var(--text)" : "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
                         {i + 1}. {s.label}
                       </div>
-                      {isActive && (
-                        <div className="fadeIn" style={{ fontSize: 10, color: "var(--amber)", marginTop: 1 }}>
-                          {s.desc}…
-                        </div>
-                      )}
+                      {isActive && <div className="fadeIn" style={{ fontSize: 10, color: "var(--amber)", marginTop: 1 }}>{s.desc}…</div>}
                     </div>
-                    {isDone && (
-                      <span style={{ color: "var(--amber)", fontSize: 12 }}>✓</span>
-                    )}
+                    {isDone && <span style={{ color: "var(--amber)", fontSize: 12 }}>✓</span>}
                   </div>
                 );
               })}
             </div>
 
-            {/* Tour button */}
             <div style={{ marginTop: "auto" }}>
               <button
                 onClick={() => setShowTour(true)}
                 style={{
-                  background: "transparent", border: "1px solid var(--border)",
-                  borderRadius: 8, padding: "8px 14px",
-                  color: "var(--text-muted)", fontSize: 12, fontWeight: 500,
+                  background: "transparent", border: "1px solid var(--border)", borderRadius: 8,
+                  padding: "8px 14px", color: "var(--text-muted)", fontSize: 12, fontWeight: 500,
                   width: "100%", fontFamily: "inherit", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                   transition: "border-color 0.15s, color 0.15s",
@@ -305,41 +281,24 @@ export default function Home() {
           </div>
         </aside>
 
-        {/* ── File tree panel ── */}
+        {/* ── File tree ── */}
         {ingestStatus === "ready" && repoId && (
           <nav className="fadeIn" style={{
-            width: 220, flexShrink: 0,
-            borderRight: "1px solid var(--border)",
-            display: "flex", flexDirection: "column",
-            overflow: "hidden",
-            background: "var(--bg)",
+            width: 220, flexShrink: 0, borderRight: "1px solid var(--border)",
+            display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)",
           }}>
-            <div style={{
-              padding: "12px 14px",
-              borderBottom: "1px solid var(--border)",
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
+            <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ color: "var(--amber)", fontSize: 12 }}>⬡</span>
-              <span style={{
-                fontSize: 10, fontWeight: 600, color: "var(--text-muted)",
-                textTransform: "uppercase", letterSpacing: "0.1em",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {repoName || "Files"}
               </span>
             </div>
-            <FileTree
-              repoId={repoId}
-              traceTarget={traceTarget}
-              onFileClick={(path) => handleAsk(`Explain what this file does: ${path}`)}
-            />
+            <FileTree repoId={repoId} traceTarget={traceTarget} onFileClick={(path) => handleAsk(`Explain what this file does: ${path}`)} />
           </nav>
         )}
 
-        {/* ── Chat area ── */}
+        {/* ── Chat ── */}
         <section style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-
-          {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             style={{
@@ -350,14 +309,12 @@ export default function Home() {
               fontSize: 12, cursor: "pointer", fontFamily: "inherit",
               transition: "border-color 0.15s, color 0.15s",
             }}
-            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-bright)"; e.currentTarget.style.color = "var(--text)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             {sidebarOpen ? "◁" : "▷"}
           </button>
 
-          {/* Empty / Hero state */}
           {messages.length === 0 && (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 48 }}>
               {ingestStatus === "ready" ? (
@@ -368,7 +325,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Messages */}
           {messages.length > 0 && (
             <div className="messages-scroll" style={{ flex: 1, overflowY: "auto", padding: "24px 24px 8px", display: "flex", flexDirection: "column", gap: 20 }}>
               {messages.map((m, i) => (
@@ -378,38 +334,16 @@ export default function Home() {
               <div ref={chatEndRef} />
             </div>
           )}
-          {messages.length > 0 && asking && <div ref={chatEndRef} />}
 
-          {/* Input bar */}
-          <div style={{
-            padding: "12px 20px 16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg)",
-          }}>
-            <div style={{
-              display: "flex", gap: 10, alignItems: "center",
-              background: "var(--surface)",
-              border: "1.5px solid var(--border)",
-              borderRadius: 14, padding: "6px 6px 6px 16px",
-              transition: "border-color 0.15s, box-shadow 0.15s",
-            }}
-              onFocusCapture={(e) => {
-                const el = e.currentTarget as HTMLDivElement;
-                el.style.borderColor = "var(--amber)";
-                el.style.boxShadow = "0 0 0 3px var(--amber-soft)";
-              }}
-              onBlurCapture={(e) => {
-                const el = e.currentTarget as HTMLDivElement;
-                el.style.borderColor = "var(--border)";
-                el.style.boxShadow = "none";
-              }}
+          <div style={{ padding: "12px 20px 16px", borderTop: "1px solid var(--border)", background: "var(--bg)" }}>
+            <div
+              style={{ display: "flex", gap: 10, alignItems: "center", background: "var(--surface)", border: "1.5px solid var(--border)", borderRadius: 14, padding: "6px 6px 6px 16px", transition: "border-color 0.15s, box-shadow 0.15s" }}
+              onFocusCapture={(e) => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = "var(--amber)"; el.style.boxShadow = "0 0 0 3px var(--amber-soft)"; }}
+              onBlurCapture={(e) => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = "var(--border)"; el.style.boxShadow = "none"; }}
             >
               <input
                 ref={chatInputRef}
-                style={{
-                  flex: 1, background: "transparent", border: "none", outline: "none",
-                  color: "var(--text)", fontSize: 14, fontFamily: "inherit", padding: "6px 0",
-                }}
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--text)", fontSize: 14, fontFamily: "inherit", padding: "6px 0" }}
                 placeholder={ingestStatus === "ready" ? "Ask about this codebase…" : "Index a repository first"}
                 value={question}
                 disabled={ingestStatus !== "ready" || asking}
@@ -435,72 +369,32 @@ export default function Home() {
   );
 }
 
-/* ── Hero panel ── */
 function HeroPanel() {
   return (
     <div className="fadeUp" style={{ maxWidth: 600, textAlign: "center" }}>
-      {/* Decorative graphic */}
       <div style={{ position: "relative", width: 80, height: 80, margin: "0 auto 32px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{
-          width: 80, height: 80, borderRadius: "50%",
-          border: "1.5px solid rgba(245,158,11,0.15)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <div style={{
-            width: 54, height: 54, borderRadius: "50%",
-            border: "1.5px solid rgba(245,158,11,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: "50%",
-              background: "var(--amber-soft)",
-              border: "1px solid var(--amber)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "var(--amber)", fontSize: 16,
-            }}>⬡</div>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", border: "1.5px solid rgba(245,158,11,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 54, height: 54, borderRadius: "50%", border: "1.5px solid rgba(245,158,11,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--amber-soft)", border: "1px solid var(--amber)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--amber)", fontSize: 16 }}>⬡</div>
           </div>
         </div>
-        {/* Orbiting dot */}
-        <div style={{
-          position: "absolute", inset: 0,
-          animation: "spinRing 8s linear infinite",
-        }}>
-          <div style={{
-            position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)",
-            width: 6, height: 6, borderRadius: "50%",
-            background: "var(--amber)",
-            boxShadow: "0 0 8px rgba(245,158,11,0.8)",
-          }} />
+        <div style={{ position: "absolute", inset: 0, animation: "spinRing 8s linear infinite" }}>
+          <div style={{ position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", boxShadow: "0 0 8px rgba(245,158,11,0.8)" }} />
         </div>
       </div>
-
-      <div className="badge badge-amber" style={{ margin: "0 auto 20px" }}>
-        Free · Open source
-      </div>
-      <h1 style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2, marginBottom: 16, letterSpacing: "-0.03em" }}>
-        Understand any codebase<br />
-        <span className="gold-shimmer">in minutes.</span>
+      <h1 style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2, marginBottom: 12, letterSpacing: "-0.03em" }}>
+        Understand any codebase<br /><span className="gold-shimmer">in minutes.</span>
       </h1>
-      <p style={{ fontSize: 15, color: "var(--text-muted)", lineHeight: 1.75, marginBottom: 40, maxWidth: 480, margin: "0 auto 40px" }}>
-        Paste a public GitHub URL, and RepoMind reads every file, builds a searchable map, and answers your questions with the exact file and lines behind every answer.
+      <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.75, marginBottom: 36 }}>
+        Paste a public GitHub URL in the sidebar to get started.
       </p>
-
-      {/* Feature grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, textAlign: "left" }}>
         {[
           { icon: "⬡", label: "Visual file tree", desc: "Browse the full repo structure at a glance." },
           { icon: "◈", label: "Cited answers", desc: "Every response traces to exact files and lines." },
           { icon: "◎", label: "Instant indexing", desc: "Clone, chunk, and embed in under a minute." },
         ].map((f, i) => (
-          <div
-            key={f.label}
-            className="fadeUp feature-card"
-            style={{
-              border: "1px solid var(--border)", borderRadius: 12, padding: 16,
-              background: "var(--surface)",
-              animationDelay: `${0.1 + i * 0.07}s`,
-            }}
-          >
+          <div key={f.label} className="fadeUp feature-card" style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16, background: "var(--surface)", animationDelay: `${0.1 + i * 0.07}s` }}>
             <div style={{ fontSize: 20, color: "var(--amber)", marginBottom: 10 }}>{f.icon}</div>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 5 }}>{f.label}</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.55 }}>{f.desc}</div>
@@ -511,7 +405,6 @@ function HeroPanel() {
   );
 }
 
-/* ── Quick prompts ── */
 function QuickPromptsPanel({ onSelect, repoName }: { onSelect: (q: string) => void; repoName: string }) {
   return (
     <div className="fadeUp" style={{ width: "100%", maxWidth: 520 }}>
@@ -524,28 +417,14 @@ function QuickPromptsPanel({ onSelect, repoName }: { onSelect: (q: string) => vo
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {QUICK_PROMPTS.map((p) => (
-          <button
-            key={p}
-            onClick={() => onSelect(p)}
-            style={{
-              background: "var(--surface)",
-              border: "1.5px solid var(--border)",
-              borderRadius: 12, padding: "13px 18px",
-              fontSize: 13, textAlign: "left",
-              color: "var(--text)", fontFamily: "inherit",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 12,
-              transition: "border-color 0.15s, background 0.15s, transform 0.12s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--amber)";
-              e.currentTarget.style.background = "var(--surface-raised)";
-              e.currentTarget.style.transform = "translateX(3px)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.background = "var(--surface)";
-              e.currentTarget.style.transform = "translateX(0)";
-            }}
+          <button key={p} onClick={() => onSelect(p)} style={{
+            background: "var(--surface)", border: "1.5px solid var(--border)", borderRadius: 12, padding: "13px 18px",
+            fontSize: 13, textAlign: "left", color: "var(--text)", fontFamily: "inherit", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 12,
+            transition: "border-color 0.15s, background 0.15s, transform 0.12s",
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--amber)"; e.currentTarget.style.background = "var(--surface-raised)"; e.currentTarget.style.transform = "translateX(3px)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--surface)"; e.currentTarget.style.transform = "translateX(0)"; }}
           >
             <span style={{ color: "var(--amber)", fontSize: 16, flexShrink: 0 }}>◈</span>
             <span>{p}</span>
@@ -557,46 +436,28 @@ function QuickPromptsPanel({ onSelect, repoName }: { onSelect: (q: string) => vo
   );
 }
 
-/* ── Message bubble ── */
-function MessageBubble({
-  message,
-  onCitationClick,
-}: {
-  message: { role: "user" | "assistant"; content: string; citations?: Citation[] };
-  onCitationClick: (path: string) => void;
-}) {
+function MessageBubble({ message, onCitationClick }: { message: { role: "user" | "assistant"; content: string; citations?: Citation[] }; onCitationClick: (path: string) => void }) {
   const isUser = message.role === "user";
   return (
     <div className="fadeUp" style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", gap: 8 }}>
-      {/* Role label */}
       <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-dim)", padding: "0 4px" }}>
         {isUser ? "You" : "RepoMind"}
       </div>
       <div style={{
-        maxWidth: "72%",
-        background: isUser ? "var(--amber)" : "var(--surface-raised)",
+        maxWidth: "72%", background: isUser ? "var(--amber)" : "var(--surface-raised)",
         border: isUser ? "none" : "1px solid var(--border)",
-        color: isUser ? "#080b12" : "var(--text)",
-        padding: "12px 16px",
+        color: isUser ? "#080b12" : "var(--text)", padding: "12px 16px",
         borderRadius: isUser ? "16px 16px 4px 16px" : "4px 16px 16px 16px",
-        fontSize: 14,
-        lineHeight: 1.7,
-        whiteSpace: "pre-wrap",
+        fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap",
         boxShadow: isUser ? "0 4px 16px rgba(245,158,11,0.2)" : "var(--shadow-sm)",
         fontWeight: isUser ? 500 : 400,
       }}>
         {message.content}
       </div>
-      {/* Citations */}
       {message.citations && message.citations.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "72%" }}>
           {message.citations.map((c, j) => (
-            <button
-              key={j}
-              className="citation-pill"
-              onClick={() => onCitationClick(c.file_path)}
-              title={`Jump to ${c.file_path}`}
-            >
+            <button key={j} className="citation-pill" onClick={() => onCitationClick(c.file_path)} title={`Jump to ${c.file_path}`}>
               <span style={{ opacity: 0.6, marginRight: 3 }}>◈</span>
               {c.file_path}:{c.start_line}–{c.end_line}
             </button>
@@ -607,17 +468,11 @@ function MessageBubble({
   );
 }
 
-/* ── Thinking indicator ── */
 function ThinkingBubble() {
   return (
     <div className="fadeIn" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
       <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-dim)" }}>RepoMind</div>
-      <div style={{
-        background: "var(--surface-raised)",
-        border: "1px solid var(--border)",
-        padding: "12px 18px", borderRadius: "4px 16px 16px 16px",
-        display: "flex", alignItems: "center", gap: 6,
-      }}>
+      <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", padding: "12px 18px", borderRadius: "4px 16px 16px 16px", display: "flex", alignItems: "center", gap: 6 }}>
         <span className="typing-dot">●</span>
         <span className="typing-dot">●</span>
         <span className="typing-dot">●</span>
