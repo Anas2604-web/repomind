@@ -18,21 +18,25 @@ line breaks (see .env.example) — this code unescapes them below.
 """
 import os
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Query
 
 CLERK_JWT_KEY = os.getenv("CLERK_JWT_KEY", "").replace("\\n", "\n")
 
-
-async def get_current_user_id(authorization: str | None = Header(default=None)) -> str:
+async def get_current_user_id(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),   # ← add this
+) -> str:
     if not CLERK_JWT_KEY:
-        return "anonymous"  # auth not configured yet — dev-mode passthrough
+        return "anonymous"
 
-    if not authorization or not authorization.startswith("Bearer "):
+    # Accept token from query param (SSE can't send headers)
+    raw = token or (authorization.removeprefix("Bearer ") if authorization and authorization.startswith("Bearer ") else None)
+
+    if not raw:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
-    token = authorization.removeprefix("Bearer ")
     try:
-        payload = jwt.decode(token, CLERK_JWT_KEY, algorithms=["RS256"], options={"verify_aud": False}, leeway=30,)
+        payload = jwt.decode(raw, CLERK_JWT_KEY, algorithms=["RS256"], options={"verify_aud": False}, leeway=30)
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid session token: {e}")
 

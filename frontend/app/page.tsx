@@ -127,39 +127,96 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: "user", content: q }]);
     setQuestion("");
     setAsking(true);
+
+    // Add empty assistant message we'll fill in as tokens arrive
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
     try {
-      const res = await fetch(`${API_URL}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-        body: JSON.stringify({ repo_id: repoId, question: q }),
-      });
-      const data = await res.json();
+      const token = await getToken().catch(() => null);
+      const params = new URLSearchParams({ repo_id: repoId, question: q });
+      if (token) params.set("token", token);
+
+      const res = await fetch(`${API_URL}/chat/stream?${params.toString()}`);
+
       if (res.status === 401) {
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: "⚠️ Session expired — please refresh the page to continue.",
-        }]);
+        setMessages((prev) => [
+          ...prev.slice(0, -1),
+          { role: "assistant", content: "⚠️ Session expired — please refresh the page to continue." },
+        ]);
         return;
       }
       if (res.status === 429) {
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: "⚠️ You've hit the rate limit. Wait a minute and try again.",
-        }]);
+        setMessages((prev) => [
+          ...prev.slice(0, -1),
+          { role: "assistant", content: "⚠️ You've hit the rate limit. Wait a minute and try again." },
+        ]);
         return;
       }
-      if (!res.ok) throw new Error(data.detail || "Failed to get an answer");
+      if (!res.ok || !res.body) throw new Error("Stream failed to start");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? ""; // keep incomplete chunk
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6); // strip "data: "
+
+          if (payload === "__DONE__") break;
+
+          if (payload.startsWith("__ERROR__")) {
+            setMessages((prev) => [
+              ...prev.slice(0, -1),
+              { role: "assistant", content: `Error: ${payload.slice(9).trim()}` },
+            ]);
+            break;
+          }
+
+          if (payload.startsWith("__CITATIONS__")) {
+            // Parse citations and attach to the last message
+            try {
+              const citations = JSON.parse(payload.slice(13));
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  citations,
+                };
+                return updated;
+              });
+            } catch { /* malformed citations — skip */ }
+            continue;
+          }
+
+          // Regular text token — append to last message
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              content: updated[updated.length - 1].content + payload,
+            };
+            return updated;
+          });
+        }
+      }
+
       trackEvent("question_asked", { repo_id: repoId });
-      setMessages((prev) => [...prev, {
-        role: "assistant",
-        content: data.answer,
-        citations: data.citations,
-      }]);
     } catch (err) {
-      setMessages((prev) => [...prev, {
-        role: "assistant",
-        content: err instanceof Error ? `Error: ${err.message}` : "Something went wrong.",
-      }]);
+      setMessages((prev) => [
+        ...prev.slice(0, -1),
+        {
+          role: "assistant",
+          content: err instanceof Error ? `Error: ${err.message}` : "Something went wrong.",
+        },
+      ]);
     } finally {
       setAsking(false);
     }
