@@ -32,7 +32,7 @@ async def get_current_user_id(authorization: str | None = Header(default=None)) 
 
     token = authorization.removeprefix("Bearer ")
     try:
-        payload = jwt.decode(token, CLERK_JWT_KEY, algorithms=["RS256"], options={"verify_aud": False})
+        payload = jwt.decode(token, CLERK_JWT_KEY, algorithms=["RS256"], options={"verify_aud": False}, leeway=30,)
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid session token: {e}")
 

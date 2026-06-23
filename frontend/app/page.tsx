@@ -101,6 +101,16 @@ export default function Home() {
         body: JSON.stringify({ repo_url: repoUrl.trim() }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setIngestStatus("failed");
+        setIngestError("Session expired — please refresh the page and try again.");
+        return;
+      }
+      if (res.status === 429) {
+        setIngestStatus("failed");
+        setIngestError("Too many requests — wait a minute and try again.");
+        return;
+      }
       if (!res.ok) throw new Error(data.detail || "Failed to start indexing");
       setRepoId(data.repo_id);
       trackEvent("repo_ingest_started", { repo_url: repoUrl.trim() });
@@ -124,17 +134,32 @@ export default function Home() {
         body: JSON.stringify({ repo_id: repoId, question: q }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: "⚠️ Session expired — please refresh the page to continue.",
+        }]);
+        return;
+      }
+      if (res.status === 429) {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: "⚠️ You've hit the rate limit. Wait a minute and try again.",
+        }]);
+        return;
+      }
       if (!res.ok) throw new Error(data.detail || "Failed to get an answer");
       trackEvent("question_asked", { repo_id: repoId });
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.answer, citations: data.citations },
-      ]);
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        content: data.answer,
+        citations: data.citations,
+      }]);
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: err instanceof Error ? `Error: ${err.message}` : "Something went wrong." },
-      ]);
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        content: err instanceof Error ? `Error: ${err.message}` : "Something went wrong.",
+      }]);
     } finally {
       setAsking(false);
     }
