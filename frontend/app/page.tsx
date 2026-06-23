@@ -412,7 +412,7 @@ export default function Home() {
               {messages.map((m, i) => (
                 <MessageBubble key={i} message={m} onCitationClick={traceToFile} />
               ))}
-              {asking && <ThinkingBubble />}
+              {asking && messages[messages.length - 1]?.content === "" && <ThinkingBubble />}
               <div ref={chatEndRef} />
             </div>
           )}

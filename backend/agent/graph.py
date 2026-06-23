@@ -85,7 +85,7 @@ def ask_stream(repo_id: str, repo_path: str, question: str, max_retries: int = 3
                     seen.add(key)
                     citations.append({"file_path": file_path, "start_line": start, "end_line": end})
 
-            yield f"\n__CITATIONS__{json.dumps(citations)}"
+            yield f"__CITATIONS__{json.dumps(citations)}"
             return
 
         except BadRequestError as e:
